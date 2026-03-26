@@ -11,7 +11,7 @@ import { PasswordModal } from './components/PasswordModal';
 import { ConfirmModal } from './components/ConfirmModal';
 
 // เปลี่ยนเป็น URL ของ Cloudflare Worker ของคุณ
-const WORKER_URL = 'https://YOUR-WORKER-NAME.YOUR-SUBDOMAIN.workers.dev';
+const WORKER_URL = 'https://projects-certificate.earth7137.workers.dev';
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
