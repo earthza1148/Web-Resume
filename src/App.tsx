@@ -10,21 +10,21 @@ import { CertFormModal } from './components/CertFormModal';
 import { PasswordModal } from './components/PasswordModal';
 import { ConfirmModal } from './components/ConfirmModal';
 
+// เปลี่ยนเป็น URL ของ Cloudflare Worker ของคุณ
+const WORKER_URL = 'https://YOUR-WORKER-NAME.YOUR-SUBDOMAIN.workers.dev';
+
 export default function App() {
-  // State
   const [projects, setProjects] = useState<Project[]>([]);
   const [certs, setCerts] = useState<Certification[]>([]);
   const [isEditMode, setIsEditMode] = useState(false);
   const [activeTab, setActiveTab] = useState<'projects' | 'certs'>('projects');
   
-  // Modals State
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [showCertForm, setShowCertForm] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   
-  // Selection State
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [editingCert, setEditingCert] = useState<Certification | null>(null);
@@ -33,16 +33,19 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const isInitialLoad = useRef(true);
 
-  // Load from Backend on mount
+  // Load from Cloudflare Worker KV
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const response = await fetch('http://localhost:3001/api/data');
+        const response = await fetch(`${WORKER_URL}/api/data`);
         const data = await response.json();
         if (data.projects) setProjects(data.projects);
         if (data.certs) setCerts(data.certs);
       } catch (error) {
-        console.error('Error loading data:', error);
+        console.error('Error loading from Worker:', error);
+        // Fallback to localStorage if Worker fails
+        const savedProjects = localStorage.getItem('portfolio_projects');
+        if (savedProjects) setProjects(JSON.parse(savedProjects));
       } finally {
         isInitialLoad.current = false;
       }
@@ -50,20 +53,24 @@ export default function App() {
     fetchData();
   }, []);
 
-  // Save to Backend whenever data changes
+  // Save to Cloudflare Worker KV
   useEffect(() => {
     if (isInitialLoad.current) return;
     
+    // บันทึกลง LocalStorage เผื่อไว้ด้วย
+    localStorage.setItem('portfolio_projects', JSON.stringify(projects));
+    localStorage.setItem('portfolio_certs', JSON.stringify(certs));
+
     const saveData = async () => {
       setIsSaving(true);
       try {
-        await fetch('http://localhost:3001/api/save', {
+        await fetch(`${WORKER_URL}/api/save`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ projects, certs })
         });
       } catch (error) {
-        console.error('Error saving data:', error);
+        console.error('Error saving to Worker:', error);
       } finally {
         setTimeout(() => setIsSaving(false), 1500);
       }
@@ -72,7 +79,7 @@ export default function App() {
     saveData();
   }, [projects, certs]);
 
-  // Handlers
+  // Handlers ... (rest of the code remains the same)
   const handleToggleEditMode = () => {
     if (isEditMode) {
       setIsEditMode(false);
@@ -117,7 +124,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 font-sans selection:bg-blue-100 relative">
-      {/* Modern Header */}
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -126,17 +132,16 @@ export default function App() {
             </div>
             <h1 className="text-xl font-bold tracking-tight text-gray-900 hidden sm:block">Portfolio</h1>
             
-            {/* Saving Status Indicator */}
             <div className="ml-4 flex items-center gap-1.5 text-xs font-medium">
               {isSaving ? (
                 <div className="flex items-center gap-1.5 text-blue-600">
                   <CloudUpload className="w-4 h-4 animate-bounce" />
-                  <span className="hidden xs:inline">Saving...</span>
+                  <span className="hidden xs:inline">Saving to Worker...</span>
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 text-green-600">
                   <CloudCheck className="w-4 h-4" />
-                  <span className="hidden xs:inline">Saved to File</span>
+                  <span className="hidden xs:inline">Cloud Synced</span>
                 </div>
               )}
             </div>
@@ -187,10 +192,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 min-h-[calc(100vh-4rem)] flex flex-col">
-        
-        {/* Tabs */}
         <div className="flex justify-center mb-10">
           <div className="inline-flex bg-gray-200/50 p-1 rounded-xl">
             <button
@@ -218,7 +220,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Tab Content */}
         {activeTab === 'projects' ? (
           projects.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center py-20">
@@ -228,7 +229,7 @@ export default function App() {
               <h2 className="text-2xl font-semibold text-gray-900 mb-2">No Projects Yet</h2>
               <p className="text-gray-500 max-w-md mx-auto mb-8">
                 {isEditMode 
-                  ? "Get started by adding your first project to showcase your work." 
+                  ? "Get started by adding your first project to showcase your work. Saved to Cloudflare KV." 
                   : "Check back later to see the latest projects."}
               </p>
               {isEditMode && (
@@ -245,10 +246,7 @@ export default function App() {
               )}
             </div>
           ) : (
-            <motion.div 
-              layout
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8"
-            >
+            <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
               <AnimatePresence>
                 {projects.map((project) => (
                   <ProjectCard
@@ -283,7 +281,7 @@ export default function App() {
               <h2 className="text-2xl font-semibold text-gray-900 mb-2">No Certifications Yet</h2>
               <p className="text-gray-500 max-w-md mx-auto mb-8">
                 {isEditMode 
-                  ? "Add your certifications and achievements here." 
+                  ? "Add your certifications here. Saved to Cloudflare KV." 
                   : "Check back later to see the latest certifications."}
               </p>
               {isEditMode && (
@@ -300,10 +298,7 @@ export default function App() {
               )}
             </div>
           ) : (
-            <motion.div 
-              layout
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8"
-            >
+            <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
               <AnimatePresence>
                 {certs.map((cert) => (
                   <CertCard
@@ -328,7 +323,6 @@ export default function App() {
         )}
       </main>
 
-      {/* Modals */}
       <PasswordModal
         isOpen={showPasswordModal}
         onClose={() => setShowPasswordModal(false)}
