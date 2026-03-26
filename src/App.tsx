@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Lock, Unlock, Plus, Briefcase, Award, LayoutGrid, CloudUpload, CloudCheck, GripVertical } from 'lucide-react';
-import { motion, AnimatePresence, Reorder } from 'motion/react';
+import { Lock, Unlock, Plus, Briefcase, Award, LayoutGrid, CloudUpload, CloudCheck, GripHorizontal } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Project, Certification } from './types';
 import { ProjectCard } from './components/ProjectCard';
 import { ProjectDetailModal } from './components/ProjectDetailModal';
@@ -10,44 +10,56 @@ import { CertFormModal } from './components/CertFormModal';
 import { PasswordModal } from './components/PasswordModal';
 import { ConfirmModal } from './components/ConfirmModal';
 
-// เปลี่ยนเป็น URL ของ Cloudflare Worker ของคุณ
 const WORKER_URL = 'https://projects-certificate.earth7137.workers.dev';
 
 export default function App() {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [certs, setCerts] = useState<Certification[]>([]);
+  // Load from localStorage IMMEDIATELY for instant speed
+  const [projects, setProjects] = useState<Project[]>(() => {
+    const saved = localStorage.getItem('portfolio_projects');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [certs, setCerts] = useState<Certification[]>(() => {
+    const saved = localStorage.getItem('portfolio_certs');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
   const [isEditMode, setIsEditMode] = useState(false);
   const [activeTab, setActiveTab] = useState<'projects' | 'certs'>('projects');
-  
+  const [isSaving, setIsSaving] = useState(false);
+  const isInitialLoad = useRef(true);
+
+  // Modals & Selection State
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [showCertForm, setShowCertForm] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [editingCert, setEditingCert] = useState<Certification | null>(null);
   const [itemToDelete, setItemToDelete] = useState<{ id: string, type: 'project' | 'cert' } | null>(null);
 
-  const [isSaving, setIsSaving] = useState(false);
-  const isInitialLoad = useRef(true);
+  // Drag State
+  const [draggedItemIndex, setDraggedItemIndex] = useState<number | null>(null);
 
-  // Load data
+  // Background Sync from Cloudflare Worker
   useEffect(() => {
     const fetchData = async () => {
       try {
         const response = await fetch(`${WORKER_URL}/api/data`);
-        if (!response.ok) throw new Error('Network response was not ok');
-        const data = await response.json();
-        if (data.projects) setProjects(data.projects);
-        if (data.certs) setCerts(data.certs);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.projects) {
+            setProjects(data.projects);
+            localStorage.setItem('portfolio_projects', JSON.stringify(data.projects));
+          }
+          if (data.certs) {
+            setCerts(data.certs);
+            localStorage.setItem('portfolio_certs', JSON.stringify(data.certs));
+          }
+        }
       } catch (error) {
-        console.error('Error loading from Worker:', error);
-        const savedProjects = localStorage.getItem('portfolio_projects');
-        const savedCerts = localStorage.getItem('portfolio_certs');
-        if (savedProjects) setProjects(JSON.parse(savedProjects));
-        if (savedCerts) setCerts(JSON.parse(savedCerts));
+        console.error('Background sync failed:', error);
       } finally {
         isInitialLoad.current = false;
       }
@@ -55,10 +67,11 @@ export default function App() {
     fetchData();
   }, []);
 
-  // Save data
+  // Save to Worker (Debounced)
   useEffect(() => {
     if (isInitialLoad.current) return;
     
+    // Always keep local storage in sync
     localStorage.setItem('portfolio_projects', JSON.stringify(projects));
     localStorage.setItem('portfolio_certs', JSON.stringify(certs));
 
@@ -71,15 +84,32 @@ export default function App() {
           body: JSON.stringify({ projects, certs })
         });
       } catch (error) {
-        console.error('Error saving to Worker:', error);
+        console.error('Save failed:', error);
       } finally {
-        setTimeout(() => setIsSaving(false), 1000);
+        setTimeout(() => setIsSaving(false), 800);
       }
     };
     
-    const timeoutId = setTimeout(saveData, 500); // Debounce saves
-    return () => clearTimeout(timeoutId);
+    const timer = setTimeout(saveData, 1000);
+    return () => clearTimeout(timer);
   }, [projects, certs]);
+
+  // Handle Drag & Reorder for Grid
+  const moveItem = (dragIndex: number, hoverIndex: number) => {
+    if (activeTab === 'projects') {
+      const newProjects = [...projects];
+      const draggedProject = newProjects[dragIndex];
+      newProjects.splice(dragIndex, 1);
+      newProjects.splice(hoverIndex, 0, draggedProject);
+      setProjects(newProjects);
+    } else {
+      const newCerts = [...certs];
+      const draggedCert = newCerts[dragIndex];
+      newCerts.splice(dragIndex, 1);
+      newCerts.splice(hoverIndex, 0, draggedCert);
+      setCerts(newCerts);
+    }
+  };
 
   const handleToggleEditMode = () => {
     if (isEditMode) {
@@ -232,51 +262,53 @@ export default function App() {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
+            transition={{ duration: 0.15 }}
             className="flex-1"
           >
-            {activeTab === 'projects' ? (
-              projects.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-center py-20">
-                  <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                    <Briefcase className="w-8 h-8 text-gray-400" />
+            <motion.div 
+              layout 
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8"
+            >
+              {activeTab === 'projects' ? (
+                projects.length === 0 ? (
+                  <div className="col-span-full flex flex-col items-center justify-center text-center py-20">
+                    <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                      <Briefcase className="w-8 h-8 text-gray-400" />
+                    </div>
+                    <h2 className="text-2xl font-semibold text-gray-900 mb-2">No Projects Yet</h2>
+                    {isEditMode && (
+                      <button
+                        onClick={() => {
+                          setEditingProject(null);
+                          setShowProjectForm(true);
+                        }}
+                        className="inline-flex items-center gap-2 px-6 py-3 bg-gray-900 hover:bg-gray-800 text-white font-medium rounded-xl transition-all shadow-sm"
+                      >
+                        <Plus className="w-5 h-5" />
+                        Add Project
+                      </button>
+                    )}
                   </div>
-                  <h2 className="text-2xl font-semibold text-gray-900 mb-2">No Projects Yet</h2>
-                  <p className="text-gray-500 max-w-md mx-auto mb-8">
-                    {isEditMode 
-                      ? "Get started by adding your first project to showcase your work." 
-                      : "Check back later to see the latest projects."}
-                  </p>
-                  {isEditMode && (
-                    <button
-                      onClick={() => {
-                        setEditingProject(null);
-                        setShowProjectForm(true);
+                ) : (
+                  projects.map((project, index) => (
+                    <motion.div
+                      layout
+                      key={project.id}
+                      draggable={isEditMode}
+                      onDragStart={() => setDraggedItemIndex(index)}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        if (draggedItemIndex === null || draggedItemIndex === index) return;
+                        moveItem(draggedItemIndex, index);
+                        setDraggedItemIndex(index);
                       }}
-                      className="inline-flex items-center gap-2 px-6 py-3 bg-gray-900 hover:bg-gray-800 text-white font-medium rounded-xl transition-all shadow-sm"
-                    >
-                      <Plus className="w-5 h-5" />
-                      Add Project
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <Reorder.Group 
-                  axis="y" 
-                  values={projects} 
-                  onReorder={setProjects}
-                  className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8 list-none"
-                >
-                  {projects.map((project) => (
-                    <Reorder.Item 
-                      key={project.id} 
-                      value={project}
-                      dragListener={isEditMode}
-                      className="relative"
+                      onDragEnd={() => setDraggedItemIndex(null)}
+                      className={`relative group ${draggedItemIndex === index ? 'opacity-40' : 'opacity-100'}`}
+                      transition={{ type: "spring", stiffness: 500, damping: 30 }}
                     >
                       {isEditMode && (
-                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10 bg-gray-900 text-white p-1 rounded-full cursor-grab active:cursor-grabbing border-2 border-white shadow-md">
-                          <GripVertical className="w-3 h-3" />
+                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 bg-gray-900 text-white p-1 rounded-full cursor-move shadow-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                          <GripHorizontal className="w-4 h-4" />
                         </div>
                       )}
                       <ProjectCard
@@ -297,52 +329,49 @@ export default function App() {
                           setShowConfirmModal(true);
                         }}
                       />
-                    </Reorder.Item>
-                  ))}
-                </Reorder.Group>
-              )
-            ) : (
-              certs.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-center py-20">
-                  <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                    <Award className="w-8 h-8 text-gray-400" />
-                  </div>
-                  <h2 className="text-2xl font-semibold text-gray-900 mb-2">No Certifications Yet</h2>
-                  <p className="text-gray-500 max-w-md mx-auto mb-8">
-                    {isEditMode 
-                      ? "Add your certifications and achievements here." 
-                      : "Check back later to see the latest certifications."}
-                  </p>
-                  {isEditMode && (
-                    <button
-                      onClick={() => {
-                        setEditingCert(null);
-                        setShowCertForm(true);
-                      }}
-                      className="inline-flex items-center gap-2 px-6 py-3 bg-gray-900 hover:bg-gray-800 text-white font-medium rounded-xl transition-all shadow-sm"
-                    >
-                      <Plus className="w-5 h-5" />
-                      Add Certification
-                    </button>
-                  )}
-                </div>
+                    </motion.div>
+                  ))
+                )
               ) : (
-                <Reorder.Group 
-                  axis="y" 
-                  values={certs} 
-                  onReorder={setCerts}
-                  className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8 list-none"
-                >
-                  {certs.map((cert) => (
-                    <Reorder.Item 
-                      key={cert.id} 
-                      value={cert}
-                      dragListener={isEditMode}
-                      className="relative"
+                certs.length === 0 ? (
+                  <div className="col-span-full flex flex-col items-center justify-center text-center py-20">
+                    <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                      <Award className="w-8 h-8 text-gray-400" />
+                    </div>
+                    <h2 className="text-2xl font-semibold text-gray-900 mb-2">No Certifications Yet</h2>
+                    {isEditMode && (
+                      <button
+                        onClick={() => {
+                          setEditingCert(null);
+                          setShowCertForm(true);
+                        }}
+                        className="inline-flex items-center gap-2 px-6 py-3 bg-gray-900 hover:bg-gray-800 text-white font-medium rounded-xl transition-all shadow-sm"
+                      >
+                        <Plus className="w-5 h-5" />
+                        Add Certification
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  certs.map((cert, index) => (
+                    <motion.div
+                      layout
+                      key={cert.id}
+                      draggable={isEditMode}
+                      onDragStart={() => setDraggedItemIndex(index)}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        if (draggedItemIndex === null || draggedItemIndex === index) return;
+                        moveItem(draggedItemIndex, index);
+                        setDraggedItemIndex(index);
+                      }}
+                      onDragEnd={() => setDraggedItemIndex(null)}
+                      className={`relative group ${draggedItemIndex === index ? 'opacity-40' : 'opacity-100'}`}
+                      transition={{ type: "spring", stiffness: 500, damping: 30 }}
                     >
                       {isEditMode && (
-                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10 bg-gray-900 text-white p-1 rounded-full cursor-grab active:cursor-grabbing border-2 border-white shadow-md">
-                          <GripVertical className="w-3 h-3" />
+                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 bg-gray-900 text-white p-1 rounded-full cursor-move shadow-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                          <GripHorizontal className="w-4 h-4" />
                         </div>
                       )}
                       <CertCard
@@ -359,11 +388,11 @@ export default function App() {
                           setShowConfirmModal(true);
                         }}
                       />
-                    </Reorder.Item>
-                  ))}
-                </Reorder.Group>
-              )
-            )}
+                    </motion.div>
+                  ))
+                )
+              )}
+            </motion.div>
           </motion.div>
         </AnimatePresence>
       </main>
