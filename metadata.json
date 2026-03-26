@@ -1,0 +1,5 @@
+{
+  "name": "My Projects Portfolio",
+  "description": "A portfolio application to showcase projects with an edit mode protected by a password.",
+  "requestFramePermissions": []
+}
