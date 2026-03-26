@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Lock, Unlock, Plus, Briefcase, Award, LayoutGrid, CloudUpload, CloudCheck } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { Lock, Unlock, Plus, Briefcase, Award, LayoutGrid, CloudUpload, CloudCheck, GripVertical } from 'lucide-react';
+import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { Project, Certification } from './types';
 import { ProjectCard } from './components/ProjectCard';
 import { ProjectDetailModal } from './components/ProjectDetailModal';
@@ -33,19 +33,21 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const isInitialLoad = useRef(true);
 
-  // Load from Cloudflare Worker KV
+  // Load data
   useEffect(() => {
     const fetchData = async () => {
       try {
         const response = await fetch(`${WORKER_URL}/api/data`);
+        if (!response.ok) throw new Error('Network response was not ok');
         const data = await response.json();
         if (data.projects) setProjects(data.projects);
         if (data.certs) setCerts(data.certs);
       } catch (error) {
         console.error('Error loading from Worker:', error);
-        // Fallback to localStorage if Worker fails
         const savedProjects = localStorage.getItem('portfolio_projects');
+        const savedCerts = localStorage.getItem('portfolio_certs');
         if (savedProjects) setProjects(JSON.parse(savedProjects));
+        if (savedCerts) setCerts(JSON.parse(savedCerts));
       } finally {
         isInitialLoad.current = false;
       }
@@ -53,11 +55,10 @@ export default function App() {
     fetchData();
   }, []);
 
-  // Save to Cloudflare Worker KV
+  // Save data
   useEffect(() => {
     if (isInitialLoad.current) return;
     
-    // บันทึกลง LocalStorage เผื่อไว้ด้วย
     localStorage.setItem('portfolio_projects', JSON.stringify(projects));
     localStorage.setItem('portfolio_certs', JSON.stringify(certs));
 
@@ -72,14 +73,14 @@ export default function App() {
       } catch (error) {
         console.error('Error saving to Worker:', error);
       } finally {
-        setTimeout(() => setIsSaving(false), 1500);
+        setTimeout(() => setIsSaving(false), 1000);
       }
     };
     
-    saveData();
+    const timeoutId = setTimeout(saveData, 500); // Debounce saves
+    return () => clearTimeout(timeoutId);
   }, [projects, certs]);
 
-  // Handlers ... (rest of the code remains the same)
   const handleToggleEditMode = () => {
     if (isEditMode) {
       setIsEditMode(false);
@@ -136,12 +137,12 @@ export default function App() {
               {isSaving ? (
                 <div className="flex items-center gap-1.5 text-blue-600">
                   <CloudUpload className="w-4 h-4 animate-bounce" />
-                  <span className="hidden xs:inline">Saving to Worker...</span>
+                  <span className="hidden xs:inline">Syncing...</span>
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 text-green-600">
                   <CloudCheck className="w-4 h-4" />
-                  <span className="hidden xs:inline">Cloud Synced</span>
+                  <span className="hidden xs:inline">Synced</span>
                 </div>
               )}
             </div>
@@ -194,13 +195,11 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 min-h-[calc(100vh-4rem)] flex flex-col">
         <div className="flex justify-center mb-10">
-          <div className="inline-flex bg-gray-200/50 p-1 rounded-xl">
+          <div className="inline-flex bg-gray-200/50 p-1 rounded-xl relative">
             <button
               onClick={() => setActiveTab('projects')}
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                activeTab === 'projects' 
-                  ? 'bg-white text-gray-900 shadow-sm' 
-                  : 'text-gray-500 hover:text-gray-700'
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all z-10 ${
+                activeTab === 'projects' ? 'text-gray-900' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               <Briefcase className="w-4 h-4" />
@@ -208,121 +207,168 @@ export default function App() {
             </button>
             <button
               onClick={() => setActiveTab('certs')}
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                activeTab === 'certs' 
-                  ? 'bg-white text-gray-900 shadow-sm' 
-                  : 'text-gray-500 hover:text-gray-700'
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all z-10 ${
+                activeTab === 'certs' ? 'text-gray-900' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               <Award className="w-4 h-4" />
               Certifications
             </button>
+            <motion.div
+              className="absolute bg-white shadow-sm rounded-lg top-1 bottom-1"
+              initial={false}
+              animate={{
+                left: activeTab === 'projects' ? '4px' : 'calc(50% + 2px)',
+                right: activeTab === 'projects' ? 'calc(50% + 2px)' : '4px',
+              }}
+              transition={{ type: "spring", stiffness: 400, damping: 30 }}
+            />
           </div>
         </div>
 
-        {activeTab === 'projects' ? (
-          projects.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-center py-20">
-              <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                <Briefcase className="w-8 h-8 text-gray-400" />
-              </div>
-              <h2 className="text-2xl font-semibold text-gray-900 mb-2">No Projects Yet</h2>
-              <p className="text-gray-500 max-w-md mx-auto mb-8">
-                {isEditMode 
-                  ? "Get started by adding your first project to showcase your work. Saved to Cloudflare KV." 
-                  : "Check back later to see the latest projects."}
-              </p>
-              {isEditMode && (
-                <button
-                  onClick={() => {
-                    setEditingProject(null);
-                    setShowProjectForm(true);
-                  }}
-                  className="inline-flex items-center gap-2 px-6 py-3 bg-gray-900 hover:bg-gray-800 text-white font-medium rounded-xl transition-all shadow-sm"
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+            className="flex-1"
+          >
+            {activeTab === 'projects' ? (
+              projects.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-center py-20">
+                  <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <Briefcase className="w-8 h-8 text-gray-400" />
+                  </div>
+                  <h2 className="text-2xl font-semibold text-gray-900 mb-2">No Projects Yet</h2>
+                  <p className="text-gray-500 max-w-md mx-auto mb-8">
+                    {isEditMode 
+                      ? "Get started by adding your first project to showcase your work." 
+                      : "Check back later to see the latest projects."}
+                  </p>
+                  {isEditMode && (
+                    <button
+                      onClick={() => {
+                        setEditingProject(null);
+                        setShowProjectForm(true);
+                      }}
+                      className="inline-flex items-center gap-2 px-6 py-3 bg-gray-900 hover:bg-gray-800 text-white font-medium rounded-xl transition-all shadow-sm"
+                    >
+                      <Plus className="w-5 h-5" />
+                      Add Project
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <Reorder.Group 
+                  axis="y" 
+                  values={projects} 
+                  onReorder={setProjects}
+                  className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8 list-none"
                 >
-                  <Plus className="w-5 h-5" />
-                  Add Project
-                </button>
-              )}
-            </div>
-          ) : (
-            <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
-              <AnimatePresence>
-                {projects.map((project) => (
-                  <ProjectCard
-                    key={project.id}
-                    project={project}
-                    isEditMode={isEditMode}
-                    onClick={() => {
-                      setSelectedProject(project);
-                      setShowDetailModal(true);
-                    }}
-                    onEdit={(e) => {
-                      e.stopPropagation();
-                      setEditingProject(project);
-                      setShowProjectForm(true);
-                    }}
-                    onDelete={(e) => {
-                      e.stopPropagation();
-                      setItemToDelete({ id: project.id, type: 'project' });
-                      setShowConfirmModal(true);
-                    }}
-                  />
-                ))}
-              </AnimatePresence>
-            </motion.div>
-          )
-        ) : (
-          certs.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-center py-20">
-              <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                <Award className="w-8 h-8 text-gray-400" />
-              </div>
-              <h2 className="text-2xl font-semibold text-gray-900 mb-2">No Certifications Yet</h2>
-              <p className="text-gray-500 max-w-md mx-auto mb-8">
-                {isEditMode 
-                  ? "Add your certifications here. Saved to Cloudflare KV." 
-                  : "Check back later to see the latest certifications."}
-              </p>
-              {isEditMode && (
-                <button
-                  onClick={() => {
-                    setEditingCert(null);
-                    setShowCertForm(true);
-                  }}
-                  className="inline-flex items-center gap-2 px-6 py-3 bg-gray-900 hover:bg-gray-800 text-white font-medium rounded-xl transition-all shadow-sm"
+                  {projects.map((project) => (
+                    <Reorder.Item 
+                      key={project.id} 
+                      value={project}
+                      dragListener={isEditMode}
+                      className="relative"
+                    >
+                      {isEditMode && (
+                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10 bg-gray-900 text-white p-1 rounded-full cursor-grab active:cursor-grabbing border-2 border-white shadow-md">
+                          <GripVertical className="w-3 h-3" />
+                        </div>
+                      )}
+                      <ProjectCard
+                        project={project}
+                        isEditMode={isEditMode}
+                        onClick={() => {
+                          setSelectedProject(project);
+                          setShowDetailModal(true);
+                        }}
+                        onEdit={(e) => {
+                          e.stopPropagation();
+                          setEditingProject(project);
+                          setShowProjectForm(true);
+                        }}
+                        onDelete={(e) => {
+                          e.stopPropagation();
+                          setItemToDelete({ id: project.id, type: 'project' });
+                          setShowConfirmModal(true);
+                        }}
+                      />
+                    </Reorder.Item>
+                  ))}
+                </Reorder.Group>
+              )
+            ) : (
+              certs.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-center py-20">
+                  <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <Award className="w-8 h-8 text-gray-400" />
+                  </div>
+                  <h2 className="text-2xl font-semibold text-gray-900 mb-2">No Certifications Yet</h2>
+                  <p className="text-gray-500 max-w-md mx-auto mb-8">
+                    {isEditMode 
+                      ? "Add your certifications and achievements here." 
+                      : "Check back later to see the latest certifications."}
+                  </p>
+                  {isEditMode && (
+                    <button
+                      onClick={() => {
+                        setEditingCert(null);
+                        setShowCertForm(true);
+                      }}
+                      className="inline-flex items-center gap-2 px-6 py-3 bg-gray-900 hover:bg-gray-800 text-white font-medium rounded-xl transition-all shadow-sm"
+                    >
+                      <Plus className="w-5 h-5" />
+                      Add Certification
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <Reorder.Group 
+                  axis="y" 
+                  values={certs} 
+                  onReorder={setCerts}
+                  className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8 list-none"
                 >
-                  <Plus className="w-5 h-5" />
-                  Add Certification
-                </button>
-              )}
-            </div>
-          ) : (
-            <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
-              <AnimatePresence>
-                {certs.map((cert) => (
-                  <CertCard
-                    key={cert.id}
-                    cert={cert}
-                    isEditMode={isEditMode}
-                    onEdit={(e) => {
-                      e.stopPropagation();
-                      setEditingCert(cert);
-                      setShowCertForm(true);
-                    }}
-                    onDelete={(e) => {
-                      e.stopPropagation();
-                      setItemToDelete({ id: cert.id, type: 'cert' });
-                      setShowConfirmModal(true);
-                    }}
-                  />
-                ))}
-              </AnimatePresence>
-            </motion.div>
-          )
-        )}
+                  {certs.map((cert) => (
+                    <Reorder.Item 
+                      key={cert.id} 
+                      value={cert}
+                      dragListener={isEditMode}
+                      className="relative"
+                    >
+                      {isEditMode && (
+                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10 bg-gray-900 text-white p-1 rounded-full cursor-grab active:cursor-grabbing border-2 border-white shadow-md">
+                          <GripVertical className="w-3 h-3" />
+                        </div>
+                      )}
+                      <CertCard
+                        cert={cert}
+                        isEditMode={isEditMode}
+                        onEdit={(e) => {
+                          e.stopPropagation();
+                          setEditingCert(cert);
+                          setShowCertForm(true);
+                        }}
+                        onDelete={(e) => {
+                          e.stopPropagation();
+                          setItemToDelete({ id: cert.id, type: 'cert' });
+                          setShowConfirmModal(true);
+                        }}
+                      />
+                    </Reorder.Item>
+                  ))}
+                </Reorder.Group>
+              )
+            )}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
+      {/* Modals */}
       <PasswordModal
         isOpen={showPasswordModal}
         onClose={() => setShowPasswordModal(false)}
