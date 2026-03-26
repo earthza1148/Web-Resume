@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Lock, Unlock, Plus, Briefcase, Award, LayoutGrid } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Lock, Unlock, Plus, Briefcase, Award, LayoutGrid, CloudUpload, CloudCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Project, Certification } from './types';
 import { ProjectCard } from './components/ProjectCard';
@@ -30,26 +30,47 @@ export default function App() {
   const [editingCert, setEditingCert] = useState<Certification | null>(null);
   const [itemToDelete, setItemToDelete] = useState<{ id: string, type: 'project' | 'cert' } | null>(null);
 
-  // Load from localStorage on mount
+  const [isSaving, setIsSaving] = useState(false);
+  const isInitialLoad = useRef(true);
+
+  // Load from Backend on mount
   useEffect(() => {
-    const savedProjects = localStorage.getItem('portfolio_projects');
-    const savedCerts = localStorage.getItem('portfolio_certs');
-    if (savedProjects) {
-      try { setProjects(JSON.parse(savedProjects)); } catch (e) {}
-    }
-    if (savedCerts) {
-      try { setCerts(JSON.parse(savedCerts)); } catch (e) {}
-    }
+    const fetchData = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/data');
+        const data = await response.json();
+        if (data.projects) setProjects(data.projects);
+        if (data.certs) setCerts(data.certs);
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        isInitialLoad.current = false;
+      }
+    };
+    fetchData();
   }, []);
 
-  // Save to localStorage when data changes
+  // Save to Backend whenever data changes
   useEffect(() => {
-    localStorage.setItem('portfolio_projects', JSON.stringify(projects));
-  }, [projects]);
-
-  useEffect(() => {
-    localStorage.setItem('portfolio_certs', JSON.stringify(certs));
-  }, [certs]);
+    if (isInitialLoad.current) return;
+    
+    const saveData = async () => {
+      setIsSaving(true);
+      try {
+        await fetch('http://localhost:3001/api/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projects, certs })
+        });
+      } catch (error) {
+        console.error('Error saving data:', error);
+      } finally {
+        setTimeout(() => setIsSaving(false), 1500);
+      }
+    };
+    
+    saveData();
+  }, [projects, certs]);
 
   // Handlers
   const handleToggleEditMode = () => {
@@ -104,6 +125,21 @@ export default function App() {
               <LayoutGrid className="w-5 h-5" />
             </div>
             <h1 className="text-xl font-bold tracking-tight text-gray-900 hidden sm:block">Portfolio</h1>
+            
+            {/* Saving Status Indicator */}
+            <div className="ml-4 flex items-center gap-1.5 text-xs font-medium">
+              {isSaving ? (
+                <div className="flex items-center gap-1.5 text-blue-600">
+                  <CloudUpload className="w-4 h-4 animate-bounce" />
+                  <span className="hidden xs:inline">Saving...</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 text-green-600">
+                  <CloudCheck className="w-4 h-4" />
+                  <span className="hidden xs:inline">Saved to File</span>
+                </div>
+              )}
+            </div>
           </div>
           
           <div className="flex items-center gap-3">
